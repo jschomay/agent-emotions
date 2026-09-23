@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { BOTTOM } from './graph.js';
 
 const LOG_MAX_LINES = 40;
 const HISTORY_MAX = 10;
+const TURNS_MAX = 200;
+const TURN_MESSAGE_TRUNCATE = 200;
 
 function neutralValues() {
   return Object.fromEntries(BOTTOM.map((b) => [b.id, 0.5]));
@@ -37,6 +39,9 @@ function dispositionPath(dir) {
 function logPath(dir) {
   return join(dir, 'emotion-log.md');
 }
+function turnsPath(dir) {
+  return join(dir, 'turns.jsonl');
+}
 
 /** Creates default files if this is a fresh project partition. Idempotent. */
 export function ensureInitialized(dir) {
@@ -48,6 +53,9 @@ export function ensureInitialized(dir) {
   }
   if (!existsSync(logPath(dir))) {
     writeFileSync(logPath(dir), '');
+  }
+  if (!existsSync(turnsPath(dir))) {
+    writeFileSync(turnsPath(dir), '');
   }
 }
 
@@ -84,4 +92,31 @@ export function appendLog(dir, entry) {
   lines.push(entry.trim().replace(/\n+/g, ' '));
   const rotated = lines.slice(-LOG_MAX_LINES);
   writeFileSync(logPath(dir), rotated.join('\n') + '\n');
+}
+
+/** Dashboard/debug data only — not read by the live pipeline. One record per interpreted
+ * turn: the (truncated) message, the axes Haiku produced, and the resulting emotion values. */
+export function appendTurn(dir, { message, axes, values }) {
+  const record = {
+    ts: new Date().toISOString(),
+    message: message.length > TURN_MESSAGE_TRUNCATE ? message.slice(0, TURN_MESSAGE_TRUNCATE) + '…' : message,
+    axes,
+    values,
+  };
+  appendFileSync(turnsPath(dir), JSON.stringify(record) + '\n');
+
+  // Cheap rotation: only rewrite once the file has grown well past the cap.
+  const lines = readFileSync(turnsPath(dir), 'utf8').split('\n').filter(Boolean);
+  if (lines.length > TURNS_MAX * 1.5) {
+    writeFileSync(turnsPath(dir), lines.slice(-TURNS_MAX).join('\n') + '\n');
+  }
+}
+
+export function readTurns(dir, n = TURNS_MAX) {
+  const text = readFileSync(turnsPath(dir), 'utf8');
+  return text
+    .split('\n')
+    .filter(Boolean)
+    .slice(-n)
+    .map((line) => JSON.parse(line));
 }

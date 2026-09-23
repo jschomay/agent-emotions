@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>psychoanalyze — agent-emotions</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3.7.0/lib/viz-standalone.js"></script>
+<style>
+  :root{
+    --bg:#15161a; --panel:#1c1d22; --panel2:#212228; --line:#33343c;
+    --text:#e9e8e3; --text-dim:#9a9aa2;
+    --bad:#c1483f; --good:#4c9a5b; --bias:#d98e3c; --accent:#7c9cff;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f4f2ee; --panel:#ffffff; --panel2:#f0eee9; --line:#ddd9d0; --text:#1c1c1c; --text-dim:#68655f; }
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', system-ui, sans-serif; }
+  .wrap{ max-width:1320px; margin:0 auto; padding:26px 22px 70px; }
+  h1{ font-family:'Fraunces', Georgia, serif; font-weight:600; font-size:clamp(22px,3.4vw,30px); margin:0 0 4px; }
+  header p{ color:var(--text-dim); margin:0 0 4px; font-size:13px; }
+  .live{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; }
+  .live .dot{ width:7px; height:7px; border-radius:50%; background:var(--good); animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+  .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:18px; }
+  @media (max-width:960px){ .grid{ grid-template-columns:1fr; } }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .panel h2{ font-family:'Fraunces', Georgia, serif; font-weight:600; font-size:14px; margin:0 0 10px; }
+  .panel h2 small{ font-family:'IBM Plex Mono', monospace; font-weight:400; font-size:11px; color:var(--text-dim); margin-left:6px;}
+  .span2{ grid-column: 1 / -1; }
+  #graph{ width:100%; min-height:320px; display:flex; align-items:center; justify-content:center; }
+  #graph svg{ width:100%; height:auto; }
+  .legend{ display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--text-dim); margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .swatch{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .bars .row{ display:flex; align-items:center; gap:8px; margin-bottom:7px; font-size:12px; }
+  .bars .name{ width:60px; color:var(--text-dim); }
+  .bars .track{ flex:1; background:var(--panel2); border-radius:4px; height:9px; overflow:hidden; }
+  .bars .fill{ height:100%; border-radius:4px; }
+  .bars .val{ width:38px; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:11.5px; }
+  .log-list{ list-style:none; margin:0; padding:0; max-height:340px; overflow-y:auto; }
+  .log-list li{ padding:8px 0; border-bottom:1px solid var(--line); font-size:12.5px; line-height:1.5; }
+  .log-list li:last-child{ border-bottom:none; }
+  .log-list .ts{ color:var(--text-dim); font-family:'IBM Plex Mono',monospace; font-size:10.5px; display:block; margin-bottom:2px; }
+  table{ width:100%; border-collapse:collapse; font-size:11.5px; }
+  th,td{ text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--text-dim); font-weight:500; font-family:'IBM Plex Mono',monospace; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; }
+  td.msg{ max-width:280px; }
+  td.nums{ font-family:'IBM Plex Mono',monospace; white-space:nowrap; font-size:11px; }
+  details summary{ cursor:pointer; font-size:12.5px; color:var(--text-dim); margin-top:4px; }
+  .empty{ color:var(--text-dim); font-size:12.5px; font-style:italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>psychoanalyze</h1>
+    <p>Live view of agent-emotions state for this project. <span class="live"><span class="dot"></span>polling</span></p>
+  </header>
+
+  <div class="grid">
+    <div class="panel span2">
+      <h2>Topology <small>latest interpreted event → current state</small></h2>
+      <div id="graph"></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--bad)"></i> inverting</span>
+        <span><i class="swatch" style="background:var(--good)"></i> reinforcing</span>
+        <span><i class="swatch" style="background:var(--bias)"></i> disposition bias</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Current state <small>radar</small></h2>
+      <div id="radar"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Disposition <small>persistent, nudges rarely</small></h2>
+      <div id="disposition" class="bars"></div>
+    </div>
+
+    <div class="panel span2">
+      <h2>State over time <small id="turn-count"></small></h2>
+      <div id="history"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Emotion log <small>most recent first</small></h2>
+      <ul id="log" class="log-list"></ul>
+    </div>
+
+    <div class="panel">
+      <h2>Advanced <small>input → interpreted axes → values</small></h2>
+      <details open>
+        <summary id="advanced-summary">turns</summary>
+        <div style="overflow-x:auto; margin-top:8px;">
+          <table id="turns-table"></table>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOP = [
+  {id:'frust_enl',  neg:'frustration',  pos:'enlightenment'},
+  {id:'humil_pride', neg:'humiliation', pos:'pride'},
+  {id:'anx_conf',   neg:'anxiety',      pos:'confidence'},
+  {id:'disap_enc',  neg:'disappointed', pos:'encouraged'},
+  {id:'dread_hope', neg:'dread',        pos:'hopeful'},
+  {id:'bore_cur',   neg:'boredom',      pos:'curiosity'},
+];
+const BOTTOM = [
+  {id:'fear',    label:'fear',    family:'bad',  color:'#c1483f'},
+  {id:'anger',   label:'anger',   family:'bad',  color:'#d9643c'},
+  {id:'sadness', label:'sadness', family:'bad',  color:'#9c5fa8'},
+  {id:'trust',   label:'trust',   family:'good', color:'#4c9a5b'},
+  {id:'joy',     label:'joy',     family:'good', color:'#3f9ac6'},
+  {id:'love',    label:'love',    family:'good', color:'#c14f8e'},
+];
+const TOPOLOGY = {
+  frust_enl:   {fear:'small', anger:'large', sadness:'small', trust:'none',  joy:'large', love:'small'},
+  humil_pride: {fear:'mid',   anger:'large', sadness:'large', trust:'small', joy:'mid',   love:'large'},
+  anx_conf:    {fear:'large', anger:'none',  sadness:'none',  trust:'mid',   joy:'small', love:'none'},
+  disap_enc:   {fear:'none',  anger:'large', sadness:'mid',   trust:'small', joy:'mid',   love:'mid'},
+  dread_hope:  {fear:'large', anger:'none',  sadness:'none',  trust:'large', joy:'small', love:'none'},
+  bore_cur:    {fear:'none',  anger:'none',  sadness:'small', trust:'small', joy:'small', love:'large'},
+};
+const MAG = {small:0.1, mid:0.55, large:1.0};
+function edgeWeight(topId, bottomId, family){
+  const tier = TOPOLOGY[topId][bottomId];
+  if(tier==='none') return 0;
+  return family==='bad' ? -MAG[tier] : MAG[tier];
+}
+function fmtSigned(n){ const r=Math.round(n*100)/100; return (r>=0?'+':'')+r.toFixed(2); }
+
+let vizInstance = null;
+Viz.instance().then(v => { vizInstance = v; });
+
+function dotEscape(s){ return s.replace(/"/g,'\\"'); }
+function buildDot(axes, values, disposition){
+  let dot = `digraph G {
+  bgcolor="transparent"; rankdir=TB; nodesep=0.35; ranksep=0.9;
+  node [fontname="IBM Plex Sans", fontsize=9.5, color="#4a4b54", penwidth=1.5];
+  edge [arrowsize=0.5];
+  { rank=same; ${TOP.map(t=>t.id).join(' -> ')} [style=invis] }
+  { rank=same; ${BOTTOM.map(b=>b.id).join(' -> ')} [style=invis] }
+`;
+  TOP.forEach(t=>{
+    const v = axes ? axes[t.id] : 0;
+    const label = dotEscape(`${fmtSigned(v)}\\n${t.neg}/\\n${t.pos}`);
+    dot += `  ${t.id} [shape=circle, style=filled, fillcolor="#ffffff", fontcolor="#15161a", width=1.35, fixedsize=true, label="${label}"];\n`;
+  });
+  BOTTOM.forEach(b=>{
+    const v = values ? values[b.id] : 0.5;
+    const bias = disposition ? disposition[b.id] : 0;
+    const label = dotEscape(`${v.toFixed(2)}\\n${b.label}${bias ? '\\n('+fmtSigned(bias)+')' : ''}`);
+    const fill = bias ? '#fbead9' : '#ffffff';
+    dot += `  ${b.id} [shape=circle, style=filled, fillcolor="${fill}", fontcolor="#15161a", width=1.1, fixedsize=true, label="${label}"];\n`;
+  });
+  TOP.forEach(t=>{
+    BOTTOM.forEach(b=>{
+      const w = edgeWeight(t.id,b.id,b.family);
+      if(w===0) return;
+      const color = w<0 ? '#c1483f' : '#4c9a5b';
+      const penwidth = (1+Math.min(Math.abs(w),1)*6).toFixed(1);
+      dot += `  ${t.id} -> ${b.id} [color="${color}", penwidth=${penwidth}];\n`;
+    });
+  });
+  dot += '}';
+  return dot;
+}
+function renderGraph(axes, values, disposition){
+  if(!vizInstance) return;
+  try{
+    const svg = vizInstance.renderSVGElement(buildDot(axes, values, disposition));
+    const container = document.getElementById('graph');
+    container.innerHTML = '';
+    svg.removeAttribute('width'); svg.removeAttribute('height');
+    container.appendChild(svg);
+  }catch(e){ console.error(e); }
+}
+
+function renderRadar(values){
+  const size = 280, cx = size/2, cy = size/2, r = size/2 - 46;
+  const n = BOTTOM.length;
+  const angle = i => -Math.PI/2 + i * (2*Math.PI/n);
+  const pt = (i, frac) => [cx + Math.cos(angle(i))*r*frac, cy + Math.sin(angle(i))*r*frac];
+
+  let svg = `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:320px; display:block; margin:0 auto;">`;
+  [0.25,0.5,0.75,1].forEach(frac=>{
+    const ring = BOTTOM.map((_,i)=>pt(i,frac).join(',')).join(' ');
+    svg += `<polygon points="${ring}" fill="none" stroke="var(--line)" stroke-width="1"/>`;
+  });
+  BOTTOM.forEach((b,i)=>{
+    const [x,y] = pt(i,1);
+    svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
+  });
+  const poly = BOTTOM.map((b,i)=>pt(i, values[b.id]).join(',')).join(' ');
+  svg += `<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="2"/>`;
+  BOTTOM.forEach((b,i)=>{
+    const [x,y] = pt(i, values[b.id]);
+    svg += `<circle cx="${x}" cy="${y}" r="3.5" fill="${b.color}"/>`;
+    const [lx,ly] = pt(i, 1.24);
+    svg += `<text x="${lx}" y="${ly}" fill="var(--text-dim)" font-size="11" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Sans">${b.label}</text>`;
+  });
+  svg += '</svg>';
+  document.getElementById('radar').innerHTML = svg;
+}
+
+function renderDisposition(disposition){
+  const el = document.getElementById('disposition');
+  el.innerHTML = BOTTOM.map(b=>{
+    const v = disposition[b.id]; // -1..1
+    const pct = ((v+1)/2*100).toFixed(0);
+    return `<div class="row"><span class="name">${b.label}</span><div class="track"><div class="fill" style="width:${pct}%; background:${b.color}"></div></div><span class="val">${fmtSigned(v)}</span></div>`;
+  }).join('');
+}
+
+function renderHistory(turns){
+  const el = document.getElementById('history');
+  document.getElementById('turn-count').textContent = turns.length ? `${turns.length} turns` : '';
+  if(!turns.length){ el.innerHTML = '<p class="empty">No turns recorded yet.</p>'; return; }
+
+  const w = 1000, h = 220, padL = 30, padR = 10, padT = 10, padB = 20;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const x = i => padL + (turns.length===1 ? innerW/2 : i/(turns.length-1) * innerW);
+  const y = v => padT + (1-v) * innerH;
+
+  let svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;">`;
+  [0,0.25,0.5,0.75,1].forEach(v=>{
+    svg += `<line x1="${padL}" y1="${y(v)}" x2="${w-padR}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>`;
+    svg += `<text x="4" y="${y(v)+3}" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono">${v}</text>`;
+  });
+  BOTTOM.forEach(b=>{
+    const points = turns.map((t,i)=>`${x(i)},${y(t.values[b.id])}`).join(' ');
+    svg += `<polyline points="${points}" fill="none" stroke="${b.color}" stroke-width="1.8"/>`;
+  });
+  svg += '</svg>';
+  el.innerHTML = svg;
+}
+
+function renderLog(log){
+  const el = document.getElementById('log');
+  if(!log.length){ el.innerHTML = '<li class="empty">No entries yet — the agent logs one per turn.</li>'; return; }
+  el.innerHTML = log.map(line => `<li>${escapeHtml(line)}</li>`).join('');
+}
+
+function renderTurnsTable(turns){
+  const table = document.getElementById('turns-table');
+  document.getElementById('advanced-summary').textContent = `${turns.length} turn${turns.length===1?'':'s'}`;
+  if(!turns.length){ table.innerHTML = '<tr><td class="empty">No turns recorded yet.</td></tr>'; return; }
+  const rows = [...turns].reverse().map(t => {
+    const axesStr = TOP.map(a => `${a.id}:${fmtSigned(t.axes[a.id])}`).join(' ');
+    const valsStr = BOTTOM.map(b => `${b.id[0]}:${t.values[b.id].toFixed(2)}`).join(' ');
+    const time = new Date(t.ts).toLocaleTimeString();
+    return `<tr><td class="nums">${time}</td><td class="msg">${escapeHtml(t.message)}</td><td class="nums">${axesStr}</td><td class="nums">${valsStr}</td></tr>`;
+  }).join('');
+  table.innerHTML = `<tr><th>time</th><th>message</th><th>axes</th><th>values</th></tr>${rows}`;
+}
+
+function escapeHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function tick(){
+  try{
+    const res = await fetch('/api/data');
+    const data = await res.json();
+    const latestTurn = data.turns[data.turns.length-1];
+    renderGraph(latestTurn ? latestTurn.axes : null, data.state.values, data.disposition);
+    renderRadar(data.state.values);
+    renderDisposition(data.disposition);
+    renderHistory(data.turns);
+    renderLog(data.log);
+    renderTurnsTable(data.turns);
+  }catch(e){ console.error('poll failed', e); }
+}
+tick();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>

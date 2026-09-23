@@ -13,6 +13,7 @@ import {
   readDisposition,
   writeDisposition,
   readLogTail,
+  appendTurn,
 } from '../engine/state.js';
 import { computeEmotions, TOP } from '../engine/graph.js';
 import { applyDispositionNudges } from '../engine/disposition.js';
@@ -140,6 +141,7 @@ function main() {
 
   const newState = withNewValues(state, newValues);
   writeState(dir, newState);
+  appendTurn(dir, { message: userMessage, axes: clampedAxes, values: newValues });
 
   const { disposition: nudgedDisposition, nudged } = applyDispositionNudges(disposition, newState.history);
   if (nudged.length) {
