@@ -25,7 +25,7 @@
   .live{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; }
   .live .dot{ width:7px; height:7px; border-radius:50%; background:var(--good); animation:pulse 1.6s infinite; }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
-  .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:18px; }
+  .grid{ display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:18px; }
   @media (max-width:960px){ .grid{ grid-template-columns:1fr; } }
   .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
   .panel h2{ font-family:'Fraunces', Georgia, serif; font-weight:600; font-size:14px; margin:0 0 10px; }
@@ -143,23 +143,23 @@ Viz.instance().then(v => { vizInstance = v; });
 function dotEscape(s){ return s.replace(/"/g,'\\"'); }
 function buildDot(axes, values, disposition){
   let dot = `digraph G {
-  bgcolor="transparent"; rankdir=TB; nodesep=0.35; ranksep=0.9;
+  bgcolor="transparent"; rankdir=TB; nodesep=0.6; ranksep=1.2;
   node [fontname="IBM Plex Sans", fontsize=9.5, color="#4a4b54", penwidth=1.5];
   edge [arrowsize=0.5];
   { rank=same; ${TOP.map(t=>t.id).join(' -> ')} [style=invis] }
   { rank=same; ${BOTTOM.map(b=>b.id).join(' -> ')} [style=invis] }
 `;
+  // Node label = just the value, big and bold, inside the circle. The emotion/axis
+  // name is added separately in JS after render (addNameLabels) — Graphviz's own
+  // xlabel placement put bottom-row names in the busy edge-crossing zone above them
+  // rather than the clear space below, so this takes full control instead of fighting it.
   TOP.forEach(t=>{
     const v = axes ? axes[t.id] : 0;
-    const label = dotEscape(`${fmtSigned(v)}\\n${t.neg}/\\n${t.pos}`);
-    dot += `  ${t.id} [shape=circle, style=filled, fillcolor="#ffffff", fontcolor="#15161a", width=1.35, fixedsize=true, label="${label}"];\n`;
+    dot += `  ${t.id} [shape=circle, style=filled, fillcolor="#ffffff", fontcolor="#15161a", width=1.15, fixedsize=true, label=<<B><FONT POINT-SIZE="16">${dotEscape(fmtSigned(v))}</FONT></B>>];\n`;
   });
   BOTTOM.forEach(b=>{
     const v = values ? values[b.id] : 0.5;
-    const bias = disposition ? disposition[b.id] : 0;
-    const label = dotEscape(`${v.toFixed(2)}\\n${b.label}${bias ? '\\n('+fmtSigned(bias)+')' : ''}`);
-    const fill = bias ? '#fbead9' : '#ffffff';
-    dot += `  ${b.id} [shape=circle, style=filled, fillcolor="${fill}", fontcolor="#15161a", width=1.1, fixedsize=true, label="${label}"];\n`;
+    dot += `  ${b.id} [shape=circle, style=filled, fillcolor="#ffffff", fontcolor="#15161a", width=1.05, fixedsize=true, label=<<B><FONT POINT-SIZE="18">${v.toFixed(2)}</FONT></B>>];\n`;
   });
   TOP.forEach(t=>{
     BOTTOM.forEach(b=>{
@@ -173,6 +173,86 @@ function buildDot(axes, values, disposition){
   dot += '}';
   return dot;
 }
+
+// Bias is drawn as a small secondary circle at the top-right of its owning node,
+// overlaid in JS after render — Graphviz has no notion of "circle pinned to another
+// circle's corner", so this is post-processing on the rendered SVG rather than DOT.
+function overlayBias(svg, disposition){
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.querySelectorAll('g.node').forEach(g => {
+    const id = g.querySelector('title')?.textContent?.trim();
+    const b = BOTTOM.find(x => x.id === id);
+    if(!b) return;
+    const bias = disposition ? disposition[b.id] : 0;
+    if(Math.abs(bias) < 0.005) return; // guard against float-drift near-zero values
+    const ellipse = g.querySelector('ellipse');
+    if(!ellipse) return;
+    const cx = parseFloat(ellipse.getAttribute('cx'));
+    const cy = parseFloat(ellipse.getAttribute('cy'));
+    const rx = parseFloat(ellipse.getAttribute('rx'));
+    const ry = parseFloat(ellipse.getAttribute('ry'));
+    const ox = cx + rx*0.78, oy = cy - ry*0.78;
+    const r = Math.max(11, rx*0.34);
+
+    const circle = document.createElementNS(ns,'circle');
+    circle.setAttribute('cx', ox); circle.setAttribute('cy', oy); circle.setAttribute('r', r);
+    circle.setAttribute('fill', 'var(--bias)'); circle.setAttribute('stroke', '#15161a'); circle.setAttribute('stroke-width','1');
+    const text = document.createElementNS(ns,'text');
+    text.setAttribute('x', ox); text.setAttribute('y', oy);
+    text.setAttribute('text-anchor','middle'); text.setAttribute('dominant-baseline','central');
+    text.setAttribute('font-size', Math.max(8, r*0.6).toFixed(1));
+    text.setAttribute('font-family', 'IBM Plex Mono, monospace');
+    text.setAttribute('fill', '#15161a');
+    text.textContent = fmtSigned(bias).replace('0.', '.');
+    // Node coordinates are in the local space of the transformed <g class="graph">
+    // wrapper (Graphviz applies its own translate there), not the outer <svg> — append
+    // inside that group, not to svg directly, or the overlay lands in the wrong place.
+    const graphGroup = svg.querySelector('g.graph');
+    graphGroup.appendChild(circle);
+    graphGroup.appendChild(text);
+  });
+}
+
+// Emotion/axis name, placed above the node for the top row and below for the bottom
+// row — deliberately outside Graphviz's own label placement so it can't land in the
+// crowded edge-crossing band between the two rows.
+function addNameLabels(svg){
+  const ns = 'http://www.w3.org/2000/svg';
+  const graphGroup = svg.querySelector('g.graph');
+  svg.querySelectorAll('g.node').forEach(g => {
+    const id = g.querySelector('title')?.textContent?.trim();
+    const ellipse = g.querySelector('ellipse');
+    if(!ellipse) return;
+    const cx = parseFloat(ellipse.getAttribute('cx'));
+    const cy = parseFloat(ellipse.getAttribute('cy'));
+    const ry = parseFloat(ellipse.getAttribute('ry'));
+
+    const top = TOP.find(t => t.id === id);
+    const bottom = BOTTOM.find(b => b.id === id);
+
+    const addLine = (text, y, size, weight, color) => {
+      const el = document.createElementNS(ns, 'text');
+      el.setAttribute('x', cx);
+      el.setAttribute('y', y);
+      el.setAttribute('text-anchor', 'middle');
+      el.setAttribute('font-size', size);
+      el.setAttribute('font-family', 'IBM Plex Sans');
+      if (weight) el.setAttribute('font-weight', weight);
+      el.setAttribute('fill', color);
+      el.textContent = text;
+      graphGroup.appendChild(el);
+    };
+
+    if (top) {
+      // above the node: further line first, then the line closer to the circle
+      addLine(`${top.neg}/`, cy - ry - 34, 11, null, 'var(--text-dim)');
+      addLine(top.pos, cy - ry - 18, 11, null, 'var(--text-dim)');
+    } else if (bottom) {
+      addLine(bottom.label, cy + ry + 22, 12, '600', 'var(--text)');
+    }
+  });
+}
+
 function renderGraph(axes, values, disposition){
   if(!vizInstance) return;
   try{
@@ -181,16 +261,41 @@ function renderGraph(axes, values, disposition){
     container.innerHTML = '';
     svg.removeAttribute('width'); svg.removeAttribute('height');
     container.appendChild(svg);
+    addNameLabels(svg);
+    overlayBias(svg, disposition);
+    // Graphviz sized the viewBox for its own content only, before the labels/bias
+    // circles above were added — expand it to fit everything or they clip at the edge.
+    // getBBox() is in g.graph's own local (pre-transform) space, but viewBox is in the
+    // outer <svg>'s space, so the box has to be carried through g.graph's CTM rather
+    // than used as-is (using it directly warps the whole rendering).
+    const graphGroup = svg.querySelector('g.graph');
+    const localBox = graphGroup.getBBox();
+    const ctm = graphGroup.getCTM();
+    const corners = [
+      [localBox.x, localBox.y],
+      [localBox.x + localBox.width, localBox.y],
+      [localBox.x, localBox.y + localBox.height],
+      [localBox.x + localBox.width, localBox.y + localBox.height],
+    ].map(([x, y]) => {
+      const pt = svg.createSVGPoint();
+      pt.x = x; pt.y = y;
+      return pt.matrixTransform(ctm);
+    });
+    const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+    const pad = 10;
+    const minX = Math.min(...xs) - pad, minY = Math.min(...ys) - pad;
+    const w = Math.max(...xs) - Math.min(...xs) + 2*pad, h = Math.max(...ys) - Math.min(...ys) + 2*pad;
+    svg.setAttribute('viewBox', `${minX} ${minY} ${w} ${h}`);
   }catch(e){ console.error(e); }
 }
 
 function renderRadar(values){
-  const size = 280, cx = size/2, cy = size/2, r = size/2 - 46;
+  const size = 440, cx = size/2, cy = size/2, r = size/2 - 60;
   const n = BOTTOM.length;
   const angle = i => -Math.PI/2 + i * (2*Math.PI/n);
   const pt = (i, frac) => [cx + Math.cos(angle(i))*r*frac, cy + Math.sin(angle(i))*r*frac];
 
-  let svg = `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:320px; display:block; margin:0 auto;">`;
+  let svg = `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:480px; display:block; margin:0 auto;">`;
   [0.25,0.5,0.75,1].forEach(frac=>{
     const ring = BOTTOM.map((_,i)=>pt(i,frac).join(',')).join(' ');
     svg += `<polygon points="${ring}" fill="none" stroke="var(--line)" stroke-width="1"/>`;
@@ -203,9 +308,11 @@ function renderRadar(values){
   svg += `<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="2"/>`;
   BOTTOM.forEach((b,i)=>{
     const [x,y] = pt(i, values[b.id]);
-    svg += `<circle cx="${x}" cy="${y}" r="3.5" fill="${b.color}"/>`;
-    const [lx,ly] = pt(i, 1.24);
-    svg += `<text x="${lx}" y="${ly}" fill="var(--text-dim)" font-size="11" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Sans">${b.label}</text>`;
+    svg += `<circle cx="${x}" cy="${y}" r="5" fill="${b.color}"/>`;
+    const [lx,ly] = pt(i, 1.2);
+    svg += `<text x="${lx}" y="${ly}" fill="var(--text)" font-size="14" font-weight="600" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Sans">${b.label}</text>`;
+    const [nx,ny] = pt(i, 1.2 + 22/r);
+    svg += `<text x="${nx}" y="${ny}" fill="var(--text-dim)" font-size="11" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Mono">${values[b.id].toFixed(2)}</text>`;
   });
   svg += '</svg>';
   document.getElementById('radar').innerHTML = svg;

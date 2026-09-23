@@ -47,7 +47,9 @@ export function applyDispositionNudges(disposition, history) {
     if (direction === 0) continue;
 
     const current = next[b.id] ?? 0;
-    const moved = Math.max(-1, Math.min(1, current + direction * NUDGE_AMOUNT));
+    // Round to avoid float drift (e.g. +0.05 then -0.05 landing on 1e-17 instead of
+    // exactly 0) — visible as a stray near-zero bias in the dashboard otherwise.
+    const moved = Math.round(Math.max(-1, Math.min(1, current + direction * NUDGE_AMOUNT)) * 100) / 100;
     if (moved !== current) {
       next[b.id] = moved;
       nudged.push(b.id);
