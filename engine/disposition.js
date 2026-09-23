@@ -1,32 +1,51 @@
 import { BOTTOM } from './graph.js';
 
-const STREAK_LEN = 5;
-const DEVIATION_THRESHOLD = 0.2; // distance from neutral (0.5)
+const STREAK_LEN = 3;
+const DEVIATION_THRESHOLD = 0.2; // distance from neutral (0.5), for the streak rule
+const SPIKE_HIGH = 0.8; // single-turn value at/above this nudges disposition up
+const SPIKE_LOW = 0.2; // single-turn value at/below this nudges disposition down
 const NUDGE_AMOUNT = 0.05;
 
 /**
- * Deterministic, no LLM: if an emotion has sat >0.2 from neutral, same direction,
- * for the last 5 turns (history must already include the just-computed value),
- * nudge that emotion's disposition bias a small fixed amount, capped at +/-1.
+ * Deterministic, no LLM. Two independent triggers, each capable of nudging a given
+ * emotion's disposition bias by a small fixed amount (capped at +/-1):
  *
- * First-pass default — expect to tune once there are real sessions to look at.
+ * - Streak: the same emotion has sat >0.2 from neutral, same direction, for the last
+ *   3 turns (history must already include the just-computed value).
+ * - Spike: a single turn hit a real extreme (>=0.8 or <=0.2) — one bad-enough moment
+ *   is itself worth a nudge, no streak needed ("getting really mad makes you quicker
+ *   to anger next time").
+ *
+ * If both fire for the same emotion in the same turn, only one nudge is applied (they
+ * agree on direction by construction, so this just avoids double-counting one event).
+ *
+ * First-pass thresholds/amounts — expect to tune once there are real sessions to look at.
  *
  * @returns {{ disposition: Record<string, number>, nudged: string[] }}
  */
 export function applyDispositionNudges(disposition, history) {
-  if (history.length < STREAK_LEN) return { disposition, nudged: [] };
+  const latest = history[history.length - 1];
+  const streakWindow = history.length >= STREAK_LEN ? history.slice(-STREAK_LEN) : null;
 
-  const recent = history.slice(-STREAK_LEN);
   const next = { ...disposition };
   const nudged = [];
 
   for (const b of BOTTOM) {
-    const deviations = recent.map((v) => v[b.id] - 0.5);
-    const allAbove = deviations.every((d) => d > DEVIATION_THRESHOLD);
-    const allBelow = deviations.every((d) => d < -DEVIATION_THRESHOLD);
-    if (!allAbove && !allBelow) continue;
+    let direction = 0;
 
-    const direction = allAbove ? 1 : -1;
+    if (streakWindow) {
+      const deviations = streakWindow.map((v) => v[b.id] - 0.5);
+      if (deviations.every((d) => d > DEVIATION_THRESHOLD)) direction = 1;
+      else if (deviations.every((d) => d < -DEVIATION_THRESHOLD)) direction = -1;
+    }
+
+    if (direction === 0 && latest) {
+      if (latest[b.id] >= SPIKE_HIGH) direction = 1;
+      else if (latest[b.id] <= SPIKE_LOW) direction = -1;
+    }
+
+    if (direction === 0) continue;
+
     const current = next[b.id] ?? 0;
     const moved = Math.max(-1, Math.min(1, current + direction * NUDGE_AMOUNT));
     if (moved !== current) {
