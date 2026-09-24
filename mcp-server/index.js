@@ -10,8 +10,8 @@ server.registerTool(
   'log_emotion',
   {
     description:
-      'Record one short line to the running emotional log at the end of your turn — e.g. "I did X, Y happened, it made me feel Z". Loose is fine, just make it specific enough to be useful context next time.',
-    inputSchema: { entry: z.string().describe('One line describing what happened and how it felt.') },
+      'Record one line to the running emotional log at the end of your turn, in exactly this form: "I did X, resulting in Y, which made me feel Z."',
+    inputSchema: { entry: z.string().describe('One line: "I did X, resulting in Y, which made me feel Z."') },
   },
   async ({ entry }) => {
     const dir = projectStateDir();
