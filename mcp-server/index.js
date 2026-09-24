@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import { projectStateDir, ensureInitialized, appendLog } from '../engine/state.js';
+import { projectStateDir, ensureInitialized, appendLog, attachLogToLatestTurn } from '../engine/state.js';
 
 const server = new McpServer({ name: 'agent-emotions', version: '0.1.0' });
 
@@ -17,6 +17,7 @@ server.registerTool(
     const dir = projectStateDir();
     ensureInitialized(dir);
     appendLog(dir, entry);
+    attachLogToLatestTurn(dir, entry);
     return { content: [{ type: 'text', text: 'logged' }] };
   }
 );

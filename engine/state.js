@@ -112,6 +112,17 @@ export function appendTurn(dir, { message, axes, values }) {
   }
 }
 
+/** Links a log entry to the turn it describes: log_emotion runs at the end of the same
+ * turn whose record the hook appended at its start, so that's always the latest record. */
+export function attachLogToLatestTurn(dir, entry) {
+  const lines = readFileSync(turnsPath(dir), 'utf8').split('\n').filter(Boolean);
+  if (!lines.length) return;
+  const last = JSON.parse(lines[lines.length - 1]);
+  last.log = entry.trim().replace(/\n+/g, ' ');
+  lines[lines.length - 1] = JSON.stringify(last);
+  writeFileSync(turnsPath(dir), lines.join('\n') + '\n');
+}
+
 export function readTurns(dir, n = TURNS_MAX) {
   const text = readFileSync(turnsPath(dir), 'utf8');
   return text

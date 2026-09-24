@@ -24,6 +24,13 @@
   header p{ color:var(--text-dim); margin:0 0 4px; font-size:13px; }
   .live{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; }
   .live .dot{ width:7px; height:7px; border-radius:50%; background:var(--good); animation:pulse 1.6s infinite; }
+  .live.down{ color:var(--bad); }
+  .live.down .dot{ background:var(--bad); animation:none; }
+  .log-list li[data-i], #turns-table tr[data-i]{ cursor:default; transition:background .1s; }
+  .log-list li.hl{ background:var(--panel2); box-shadow:inset 3px 0 0 var(--accent); padding-left:8px; }
+  #turns-table tr.hl td{ background:var(--panel2); }
+  #turns-table tr.hl td:first-child{ box-shadow:inset 3px 0 0 var(--accent); }
+  .turns-scroll{ max-height:420px; overflow:auto; margin-top:8px; }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
   .grid{ display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:16px; margin-top:18px; }
   @media (max-width:960px){ .grid{ grid-template-columns:1fr; } }
@@ -64,7 +71,7 @@
 <div class="wrap">
   <header>
     <h1>psychoanalyze</h1>
-    <p>Live view of agent-emotions state for this project. <span class="live"><span class="dot"></span>polling</span></p>
+    <p>Live view of agent-emotions state for this project. <span class="live"><span class="dot"></span><span class="label">polling</span></span></p>
   </header>
 
   <div class="grid">
@@ -102,7 +109,7 @@
       <h2>Advanced <small>input → interpreted axes → values</small></h2>
       <details open>
         <summary id="advanced-summary">turns</summary>
-        <div style="overflow-x:auto; margin-top:8px;">
+        <div id="turns-scroll" class="turns-scroll">
           <table id="turns-table"></table>
         </div>
       </details>
@@ -343,17 +350,35 @@ function renderDisposition(disposition){
   }).join('');
 }
 
+// Each turn carries the log line the agent wrote at the end of it (t.log, attached by
+// log_emotion). Turns recorded before that link existed fall back to sequential
+// matching against the log file — only for that older prefix, since once links exist
+// a skipped or doubled log would shift every sequential match after it.
+function pairTurnsWithLogs(turns, logNewestFirst){
+  const legacy = [...logNewestFirst].reverse();
+  const firstLinked = turns.findIndex(t => 'log' in t);
+  return turns.map((t, i) => ({
+    ...t,
+    log: (firstLinked === -1 || i < firstLinked) ? (legacy[i] ?? null) : (t.log ?? null),
+  }));
+}
+
+let lastPairs = [];
+let hoverIndex = null;
+
+const HIST = { w:1000, h:220, padL:30, padR:10, padT:10, padB:20 };
+
 function renderHistory(turns){
   const el = document.getElementById('history');
   document.getElementById('turn-count').textContent = turns.length ? `${turns.length} turns` : '';
   if(!turns.length){ el.innerHTML = '<p class="empty">No turns recorded yet.</p>'; return; }
 
-  const w = 1000, h = 220, padL = 30, padR = 10, padT = 10, padB = 20;
+  const { w, h, padL, padR, padT, padB } = HIST;
   const innerW = w - padL - padR, innerH = h - padT - padB;
   const x = i => padL + (turns.length===1 ? innerW/2 : i/(turns.length-1) * innerW);
   const y = v => padT + (1-v) * innerH;
 
-  let svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;">`;
+  let svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block; cursor:crosshair;">`;
   [0,0.25,0.5,0.75,1].forEach(v=>{
     svg += `<line x1="${padL}" y1="${y(v)}" x2="${w-padR}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>`;
     svg += `<text x="4" y="${y(v)+3}" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono">${v}</text>`;
@@ -362,21 +387,32 @@ function renderHistory(turns){
     const points = turns.map((t,i)=>`${x(i)},${y(t.values[b.id])}`).join(' ');
     svg += `<polyline points="${points}" fill="none" stroke="${b.color}" stroke-width="1.8"/>`;
   });
+  if(hoverIndex !== null && hoverIndex < turns.length){
+    const hx = x(hoverIndex);
+    svg += `<line x1="${hx}" y1="${padT}" x2="${hx}" y2="${h-padB}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+    BOTTOM.forEach(b=>{
+      svg += `<circle cx="${hx}" cy="${y(turns[hoverIndex].values[b.id])}" r="4" fill="${b.color}" stroke="var(--panel)" stroke-width="1.5"/>`;
+    });
+    const label = new Date(turns[hoverIndex].ts).toLocaleTimeString();
+    const anchor = hx > w - 80 ? 'end' : 'start';
+    svg += `<text x="${hx + (anchor==='end' ? -6 : 6)}" y="${h-padB-6}" text-anchor="${anchor}" fill="var(--text-dim)" font-size="10" font-family="IBM Plex Mono">${label}</text>`;
+  }
   svg += '</svg>';
   el.innerHTML = svg;
 }
 
-function renderLog(log){
+function renderLog(pairs){
   const el = document.getElementById('log');
-  if(!log.length){ el.innerHTML = '<li class="empty">No entries yet — the agent logs one per turn.</li>'; return; }
-  el.innerHTML = log.map(line => `<li>${escapeHtml(line)}</li>`).join('');
+  const withLogs = pairs.map((p, i) => ({ log: p.log, i })).filter(p => p.log).reverse();
+  if(!withLogs.length){ el.innerHTML = '<li class="empty">No entries yet — the agent logs one per turn.</li>'; return; }
+  el.innerHTML = withLogs.map(p => `<li data-i="${p.i}">${escapeHtml(p.log)}</li>`).join('');
 }
 
 function renderTurnsTable(turns){
   const table = document.getElementById('turns-table');
   document.getElementById('advanced-summary').textContent = `${turns.length} turn${turns.length===1?'':'s'}`;
   if(!turns.length){ table.innerHTML = '<tr><td class="empty">No turns recorded yet.</td></tr>'; return; }
-  const rows = [...turns].reverse().map(t => {
+  const rows = turns.map((t, i) => ({ t, i })).reverse().map(({ t, i }) => {
     const axesRows = TOP.map(a => {
       const v = t.axes[a.id];
       const color = v >= 0 ? 'var(--good)' : 'var(--bad)';
@@ -384,7 +420,7 @@ function renderTurnsTable(turns){
       return `<div class="row" title="${a.neg}/${a.pos}"><span class="name">${label}</span>${divergingBar(v, color)}<span class="val">${fmtSigned(v)}</span></div>`;
     }).join('');
     const time = new Date(t.ts).toLocaleTimeString();
-    return `<tr><td class="nums">${time}</td><td class="msg">${escapeHtml(t.message)}</td><td><div class="axes-stack">${axesRows}</div></td></tr>`;
+    return `<tr data-i="${i}"><td class="nums">${time}</td><td class="msg">${escapeHtml(t.message)}</td><td><div class="axes-stack">${axesRows}</div></td></tr>`;
   }).join('');
   table.innerHTML = `<tr><th>time</th><th>message</th><th>axes</th></tr>${rows}`;
 }
@@ -393,18 +429,79 @@ function escapeHtml(s){
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// Highlight the hovered turn everywhere. Only the panels the mouse is NOT in get
+// scrolled to it — scrolling the one under the cursor would yank it out from under you.
+function scrollWithin(container, el){
+  const c = container.getBoundingClientRect(), r = el.getBoundingClientRect();
+  if(r.top < c.top) container.scrollTop -= (c.top - r.top) + 8;
+  else if(r.bottom > c.bottom) container.scrollTop += (r.bottom - c.bottom) + 8;
+}
+function applyHighlights(source, scroll){
+  document.querySelectorAll('#log li.hl, #turns-table tr.hl').forEach(el => el.classList.remove('hl'));
+  if(hoverIndex === null) return;
+  const li = document.querySelector(`#log li[data-i="${hoverIndex}"]`);
+  const tr = document.querySelector(`#turns-table tr[data-i="${hoverIndex}"]`);
+  li?.classList.add('hl');
+  tr?.classList.add('hl');
+  if(!scroll) return;
+  if(li && source !== 'log') scrollWithin(document.getElementById('log'), li);
+  if(tr && source !== 'table') scrollWithin(document.getElementById('turns-scroll'), tr);
+}
+function setHover(i, source){
+  if(i === hoverIndex) return;
+  hoverIndex = i;
+  renderHistory(lastPairs);
+  applyHighlights(source, true);
+}
+
+document.getElementById('history').addEventListener('mousemove', e => {
+  const svg = document.querySelector('#history svg');
+  const n = lastPairs.length;
+  if(!svg || !n) return;
+  const r = svg.getBoundingClientRect();
+  const vx = (e.clientX - r.left) / r.width * HIST.w;
+  const innerW = HIST.w - HIST.padL - HIST.padR;
+  const i = n === 1 ? 0 : Math.round((vx - HIST.padL) / innerW * (n - 1));
+  setHover(Math.max(0, Math.min(n - 1, i)), 'history');
+});
+document.getElementById('history').addEventListener('mouseleave', () => setHover(null, 'history'));
+for(const [id, source, sel] of [['log', 'log', 'li[data-i]'], ['turns-table', 'table', 'tr[data-i]']]){
+  const el = document.getElementById(id);
+  el.addEventListener('mouseover', e => {
+    const hit = e.target.closest(sel);
+    if(hit) setHover(Number(hit.dataset.i), source);
+  });
+  el.addEventListener('mouseleave', () => setHover(null, source));
+}
+
+function setLive(ok){
+  const live = document.querySelector('.live');
+  live.classList.toggle('down', !ok);
+  live.querySelector('.label').textContent = ok ? 'polling' : 'disconnected — rerun /agent-emotions:psychoanalyze';
+}
+
 async function tick(){
+  let data;
   try{
     const res = await fetch('/api/data');
-    const data = await res.json();
-    const latestTurn = data.turns[data.turns.length-1];
-    renderGraph(latestTurn ? latestTurn.axes : null, data.state.values, data.disposition);
-    renderRadar(data.state.values);
-    renderDisposition(data.disposition);
-    renderHistory(data.turns);
-    renderLog(data.log);
-    renderTurnsTable(data.turns);
-  }catch(e){ console.error('poll failed', e); }
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+    setLive(true);
+  }catch(e){
+    console.error('poll failed', e);
+    setLive(false);
+    return;
+  }
+  lastPairs = pairTurnsWithLogs(data.turns, data.log);
+  if(hoverIndex !== null && hoverIndex >= lastPairs.length) hoverIndex = null;
+  const latestTurn = data.turns[data.turns.length-1];
+  renderGraph(latestTurn ? latestTurn.axes : null, data.state.values, data.disposition);
+  renderRadar(data.state.values);
+  renderDisposition(data.disposition);
+  renderHistory(lastPairs);
+  renderLog(lastPairs);
+  renderTurnsTable(lastPairs);
+  applyHighlights(null, false);
 }
 tick();
 setInterval(tick, 1500);
