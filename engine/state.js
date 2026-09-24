@@ -96,12 +96,13 @@ export function appendLog(dir, entry) {
 
 /** Dashboard/debug data only — not read by the live pipeline. One record per interpreted
  * turn: the (truncated) message, the axes Haiku produced, and the resulting emotion values. */
-export function appendTurn(dir, { message, axes, values }) {
+export function appendTurn(dir, { message, axes, values, disposition }) {
   const record = {
     ts: new Date().toISOString(),
     message: message.length > TURN_MESSAGE_TRUNCATE ? message.slice(0, TURN_MESSAGE_TRUNCATE) + '…' : message,
     axes,
     values,
+    disposition,
   };
   appendFileSync(turnsPath(dir), JSON.stringify(record) + '\n');
 

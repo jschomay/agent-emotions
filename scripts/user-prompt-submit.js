@@ -144,12 +144,15 @@ function main() {
 
   const newState = withNewValues(state, newValues);
   writeState(dir, newState);
-  appendTurn(dir, { message: userMessage, axes: clampedAxes, values: newValues });
 
   const { disposition: nudgedDisposition, nudged } = applyDispositionNudges(disposition, newState.history);
   if (nudged.length) {
     writeDisposition(dir, nudgedDisposition);
   }
+
+  // Disposition recorded here is the one *after* this turn's nudges, for the dashboard's
+  // disposition-over-time chart; this turn's values were computed with the pre-nudge one.
+  appendTurn(dir, { message: userMessage, axes: clampedAxes, values: newValues, disposition: nudgedDisposition });
 
   const frameworkTemplate = readFileSync(join(__dirname, '..', 'prompts', 'framework.md'), 'utf8');
   const framework = renderFramework(frameworkTemplate, newValues);

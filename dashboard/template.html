@@ -75,23 +75,13 @@
   </header>
 
   <div class="grid">
-    <div class="panel span2">
-      <h2>Topology <small>latest interpreted event → current state</small></h2>
-      <div id="graph"></div>
-      <div class="legend">
-        <span><i class="swatch" style="background:var(--bad)"></i> inverting</span>
-        <span><i class="swatch" style="background:var(--good)"></i> reinforcing</span>
-        <span><i class="swatch" style="background:var(--bias)"></i> disposition bias</span>
-      </div>
-    </div>
-
     <div class="panel">
-      <h2>Current state <small>radar</small></h2>
+      <h2>State <small id="radar-when">now</small></h2>
       <div id="radar"></div>
     </div>
 
     <div class="panel">
-      <h2>Disposition <small>persistent, nudges rarely</small></h2>
+      <h2>Disposition <small id="disp-when">now</small></h2>
       <div id="disposition" class="bars"></div>
     </div>
 
@@ -100,19 +90,34 @@
       <div id="history"></div>
     </div>
 
+    <div class="panel span2">
+      <h2>Disposition over time <small>after each turn's nudges</small></h2>
+      <div id="disp-history"></div>
+    </div>
+
     <div class="panel">
       <h2>Emotion log <small>most recent first</small></h2>
       <ul id="log" class="log-list"></ul>
     </div>
 
     <div class="panel">
-      <h2>Advanced <small>input → interpreted axes → values</small></h2>
+      <h2>Input interpretation <small>message → interpreted axes</small></h2>
       <details open>
         <summary id="advanced-summary">turns</summary>
         <div id="turns-scroll" class="turns-scroll">
           <table id="turns-table"></table>
         </div>
       </details>
+    </div>
+
+    <div class="panel span2">
+      <h2>Topology <small>latest interpreted event → current state</small></h2>
+      <div id="graph"></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--bad)"></i> inverting</span>
+        <span><i class="swatch" style="background:var(--good)"></i> reinforcing</span>
+        <span><i class="swatch" style="background:var(--bias)"></i> disposition bias</span>
+      </div>
     </div>
   </div>
 </div>
@@ -355,50 +360,127 @@ function renderDisposition(disposition){
 // matching against the log file — only for that older prefix, since once links exist
 // a skipped or doubled log would shift every sequential match after it.
 function pairTurnsWithLogs(turns, logNewestFirst){
-  const legacy = [...logNewestFirst].reverse();
+  // The log file holds legacy lines first, then the linked ones (which are also
+  // stored on their turns), so only the leading legacy lines are up for sequential
+  // matching. Aligned from the start: aligning from the end would shift every pair
+  // by one while a turn is in progress (turn recorded, log not written yet).
+  const chrono = [...logNewestFirst].reverse();
+  const linkedCount = turns.filter(t => 'log' in t).length;
+  const legacyLines = chrono.slice(0, Math.max(0, chrono.length - linkedCount));
   const firstLinked = turns.findIndex(t => 'log' in t);
+  const legacyTurnCount = firstLinked === -1 ? turns.length : firstLinked;
   return turns.map((t, i) => ({
     ...t,
-    log: (firstLinked === -1 || i < firstLinked) ? (legacy[i] ?? null) : (t.log ?? null),
+    log: i < legacyTurnCount ? (legacyLines[i] ?? null) : (t.log ?? null),
   }));
 }
 
 let lastPairs = [];
+let lastCurrent = null; // { values, disposition } as of the latest poll
+
+// Radar + disposition panels show the hovered turn while hovering, current otherwise.
+function renderSnapshot(){
+  if(!lastCurrent) return;
+  const t = hoverIndex !== null ? lastPairs[hoverIndex] : null;
+  const when = t ? `at ${new Date(t.ts).toLocaleTimeString()}` : 'now';
+  document.getElementById('radar-when').textContent = when;
+  document.getElementById('disp-when').textContent = when;
+  document.querySelectorAll('#radar, #disposition').forEach(el => el.style.opacity = t ? '0.92' : '1');
+  renderRadar(t ? t.values : lastCurrent.values);
+  if(t && !t.disposition){
+    document.getElementById('disposition').innerHTML = '<p class="empty">Not recorded for this turn — disposition history starts after this change.</p>';
+  } else {
+    renderDisposition(t ? t.disposition : lastCurrent.disposition);
+  }
+}
 let hoverIndex = null;
 
-const HIST = { w:1000, h:220, padL:30, padR:10, padT:10, padB:20 };
+const HIST = { w:1000, h:220, padL:34, padR:10, padT:10, padB:24 };
 
-function renderHistory(turns){
-  const el = document.getElementById('history');
-  document.getElementById('turn-count').textContent = turns.length ? `${turns.length} turns` : '';
-  if(!turns.length){ el.innerHTML = '<p class="empty">No turns recorded yet.</p>'; return; }
+// Hover labels start next to their own dot, then get pushed apart vertically just
+// enough not to overlap (and kept inside the plot) — close values would stack otherwise.
+function spreadLabels(items, gap, top, bottom){
+  items.sort((a, b) => a.y - b.y);
+  for(let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i-1].y + gap);
+  const over = items.length ? items[items.length-1].y - bottom : 0;
+  if(over > 0) items.forEach(it => it.y -= over);
+  if(items.length && items[0].y < top){
+    items[0].y = top;
+    for(let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i-1].y + gap);
+  }
+  return items;
+}
+
+function renderLineChart(elId, turns, { get, yMin, yMax, grid, fmtGrid, fmtVal, emptyText }){
+  const el = document.getElementById(elId);
+  if(!turns.some(t => get(t))){ el.innerHTML = `<p class="empty">${emptyText}</p>`; return; }
 
   const { w, h, padL, padR, padT, padB } = HIST;
   const innerW = w - padL - padR, innerH = h - padT - padB;
   const x = i => padL + (turns.length===1 ? innerW/2 : i/(turns.length-1) * innerW);
-  const y = v => padT + (1-v) * innerH;
+  const y = v => padT + (yMax - v) / (yMax - yMin) * innerH;
 
   let svg = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block; cursor:crosshair;">`;
-  [0,0.25,0.5,0.75,1].forEach(v=>{
-    svg += `<line x1="${padL}" y1="${y(v)}" x2="${w-padR}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>`;
-    svg += `<text x="4" y="${y(v)+3}" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono">${v}</text>`;
+  grid.forEach(v => {
+    const zeroLine = v === 0 && yMin < 0;
+    svg += `<line x1="${padL}" y1="${y(v)}" x2="${w-padR}" y2="${y(v)}" stroke="${zeroLine ? 'var(--text-dim)' : 'var(--line)'}" stroke-width="1"/>`;
+    svg += `<text x="2" y="${y(v)+3}" fill="var(--text-dim)" font-size="9" font-family="IBM Plex Mono">${fmtGrid(v)}</text>`;
   });
-  BOTTOM.forEach(b=>{
-    const points = turns.map((t,i)=>`${x(i)},${y(t.values[b.id])}`).join(' ');
-    svg += `<polyline points="${points}" fill="none" stroke="${b.color}" stroke-width="1.8"/>`;
+  BOTTOM.forEach(b => {
+    // Runs of recorded points only: turns with no data leave a gap rather than a line
+    // drawn through them. A lone recorded point gets a dot so it isn't invisible.
+    let run = [];
+    const flush = () => {
+      if(run.length === 1) svg += `<circle cx="${run[0][0]}" cy="${run[0][1]}" r="2.5" fill="${b.color}"/>`;
+      else if(run.length) svg += `<polyline points="${run.map(p => p.join(',')).join(' ')}" fill="none" stroke="${b.color}" stroke-width="1.8"/>`;
+      run = [];
+    };
+    turns.forEach((t, i) => { const d = get(t); if(!d) flush(); else run.push([x(i), y(d[b.id])]); });
+    flush();
   });
+
   if(hoverIndex !== null && hoverIndex < turns.length){
     const hx = x(hoverIndex);
     svg += `<line x1="${hx}" y1="${padT}" x2="${hx}" y2="${h-padB}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
-    BOTTOM.forEach(b=>{
-      svg += `<circle cx="${hx}" cy="${y(turns[hoverIndex].values[b.id])}" r="4" fill="${b.color}" stroke="var(--panel)" stroke-width="1.5"/>`;
-    });
-    const label = new Date(turns[hoverIndex].ts).toLocaleTimeString();
-    const anchor = hx > w - 80 ? 'end' : 'start';
-    svg += `<text x="${hx + (anchor==='end' ? -6 : 6)}" y="${h-padB-6}" text-anchor="${anchor}" fill="var(--text-dim)" font-size="10" font-family="IBM Plex Mono">${label}</text>`;
+    const d = get(turns[hoverIndex]);
+    const right = hx > w - 140;
+    if(d){
+      BOTTOM.forEach(b => {
+        svg += `<circle cx="${hx}" cy="${y(d[b.id])}" r="4" fill="${b.color}" stroke="var(--panel)" stroke-width="1.5"/>`;
+      });
+      const labels = spreadLabels(
+        BOTTOM.map(b => ({ y: y(d[b.id]), text: `${b.label}: ${fmtVal(d[b.id])}`, color: b.color })),
+        13, padT + 6, h - padB - 6
+      );
+      labels.forEach(l => {
+        svg += `<text x="${hx + (right ? -9 : 9)}" y="${l.y}" text-anchor="${right ? 'end' : 'start'}" dominant-baseline="middle" fill="${l.color}" font-size="11" font-weight="600" font-family="IBM Plex Sans" paint-order="stroke" stroke="var(--panel)" stroke-width="3">${l.text}</text>`;
+      });
+    } else {
+      svg += `<text x="${hx + (right ? -9 : 9)}" y="${padT + 12}" text-anchor="${right ? 'end' : 'start'}" fill="var(--text-dim)" font-size="10" font-family="IBM Plex Mono">not recorded for this turn</text>`;
+    }
+    const time = new Date(turns[hoverIndex].ts).toLocaleTimeString();
+    svg += `<text x="${hx}" y="${h-6}" text-anchor="middle" fill="var(--text-dim)" font-size="10" font-family="IBM Plex Mono">${time}</text>`;
   }
   svg += '</svg>';
   el.innerHTML = svg;
+}
+
+function renderCharts(turns){
+  document.getElementById('turn-count').textContent = turns.length ? `${turns.length} turns` : '';
+  renderLineChart('history', turns, {
+    get: t => t.values, yMin: 0, yMax: 1, grid: [0, 0.25, 0.5, 0.75, 1],
+    fmtGrid: v => String(v), fmtVal: v => v.toFixed(2),
+    emptyText: 'No turns recorded yet.',
+  });
+  // Disposition moves in small steps, so scale to the data (at least ±0.2) instead of ±1,
+  // which would flatten every line onto zero.
+  const maxAbs = Math.max(0, ...turns.filter(t => t.disposition).flatMap(t => BOTTOM.map(b => Math.abs(t.disposition[b.id]))));
+  const r = Math.max(0.2, Math.ceil(maxAbs * 10) / 10);
+  renderLineChart('disp-history', turns, {
+    get: t => t.disposition, yMin: -r, yMax: r, grid: [-r, -r/2, 0, r/2, r],
+    fmtGrid: v => v === 0 ? '0' : fmtSigned(v), fmtVal: v => fmtSigned(v),
+    emptyText: 'Recorded from now on — turns before this change didn\'t store disposition.',
+  });
 }
 
 function renderLog(pairs){
@@ -450,21 +532,27 @@ function applyHighlights(source, scroll){
 function setHover(i, source){
   if(i === hoverIndex) return;
   hoverIndex = i;
-  renderHistory(lastPairs);
+  renderCharts(lastPairs);
+  renderSnapshot();
   applyHighlights(source, true);
 }
 
-document.getElementById('history').addEventListener('mousemove', e => {
-  const svg = document.querySelector('#history svg');
-  const n = lastPairs.length;
-  if(!svg || !n) return;
-  const r = svg.getBoundingClientRect();
-  const vx = (e.clientX - r.left) / r.width * HIST.w;
-  const innerW = HIST.w - HIST.padL - HIST.padR;
-  const i = n === 1 ? 0 : Math.round((vx - HIST.padL) / innerW * (n - 1));
-  setHover(Math.max(0, Math.min(n - 1, i)), 'history');
-});
-document.getElementById('history').addEventListener('mouseleave', () => setHover(null, 'history'));
+// Both charts share the same x axis (one position per turn), so either one drives
+// the same hover index.
+for(const id of ['history', 'disp-history']){
+  const el = document.getElementById(id);
+  el.addEventListener('mousemove', e => {
+    const svg = el.querySelector('svg');
+    const n = lastPairs.length;
+    if(!svg || !n) return;
+    const r = svg.getBoundingClientRect();
+    const vx = (e.clientX - r.left) / r.width * HIST.w;
+    const innerW = HIST.w - HIST.padL - HIST.padR;
+    const i = n === 1 ? 0 : Math.round((vx - HIST.padL) / innerW * (n - 1));
+    setHover(Math.max(0, Math.min(n - 1, i)), 'chart');
+  });
+  el.addEventListener('mouseleave', () => setHover(null, 'chart'));
+}
 for(const [id, source, sel] of [['log', 'log', 'li[data-i]'], ['turns-table', 'table', 'tr[data-i]']]){
   const el = document.getElementById(id);
   el.addEventListener('mouseover', e => {
@@ -496,9 +584,9 @@ async function tick(){
   if(hoverIndex !== null && hoverIndex >= lastPairs.length) hoverIndex = null;
   const latestTurn = data.turns[data.turns.length-1];
   renderGraph(latestTurn ? latestTurn.axes : null, data.state.values, data.disposition);
-  renderRadar(data.state.values);
-  renderDisposition(data.disposition);
-  renderHistory(lastPairs);
+  lastCurrent = { values: data.state.values, disposition: data.disposition };
+  renderSnapshot();
+  renderCharts(lastPairs);
   renderLog(lastPairs);
   renderTurnsTable(lastPairs);
   applyHighlights(null, false);
