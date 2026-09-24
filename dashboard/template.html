@@ -309,7 +309,12 @@ function renderGraph(axes, values, disposition){
   }catch(e){ console.error(e); }
 }
 
-function renderRadar(values){
+const TRAIL_LEN = 10;
+
+// trail: earlier states, oldest first. Drawn as outline-only ghosts fading with age
+// (one hue, older = fainter) behind the filled current state, so the session's recent
+// range reads at a glance without the fills turning to mud.
+function renderRadar(values, trail = []){
   const size = 440, cx = size/2, cy = size/2, r = size/2 - 60;
   const n = BOTTOM.length;
   const angle = i => -Math.PI/2 + i * (2*Math.PI/n);
@@ -324,8 +329,15 @@ function renderRadar(values){
     const [x,y] = pt(i,1);
     svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" stroke-width="1"/>`;
   });
+  trail.forEach((v, k) => {
+    const age = (k + 1) / trail.length; // newest ghost -> 1
+    const ghost = BOTTOM.map((b,i)=>pt(i, v[b.id]).join(',')).join(' ');
+    svg += `<polygon points="${ghost}" fill="none" stroke="var(--accent)" stroke-opacity="${(0.08 + 0.37 * age).toFixed(2)}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  });
   const poly = BOTTOM.map((b,i)=>pt(i, values[b.id]).join(',')).join(' ');
-  svg += `<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="2"/>`;
+  // surface-colored ring under the current outline so it stays crisp over the ghosts
+  svg += `<polygon points="${poly}" fill="none" stroke="var(--panel)" stroke-width="5" stroke-linejoin="round"/>`;
+  svg += `<polygon points="${poly}" fill="var(--accent)" fill-opacity="0.25" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
   BOTTOM.forEach((b,i)=>{
     const [x,y] = pt(i, values[b.id]);
     svg += `<circle cx="${x}" cy="${y}" r="5" fill="${b.color}"/>`;
@@ -386,7 +398,10 @@ function renderSnapshot(){
   document.getElementById('radar-when').textContent = when;
   document.getElementById('disp-when').textContent = when;
   document.querySelectorAll('#radar, #disposition').forEach(el => el.style.opacity = t ? '0.92' : '1');
-  renderRadar(t ? t.values : lastCurrent.values);
+  // trail = the turns before the one shown (the latest turn *is* current state when not hovering)
+  const end = t ? hoverIndex : lastPairs.length - 1;
+  const trail = lastPairs.slice(Math.max(0, end - TRAIL_LEN), Math.max(0, end)).map(p => p.values);
+  renderRadar(t ? t.values : lastCurrent.values, trail);
   if(t && !t.disposition){
     document.getElementById('disposition').innerHTML = '<p class="empty">Not recorded for this turn — disposition history starts after this change.</p>';
   } else {
