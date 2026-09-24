@@ -311,9 +311,10 @@ function renderGraph(axes, values, disposition){
 
 const TRAIL_LEN = 10;
 
-// trail: earlier states, oldest first. Drawn as outline-only ghosts fading with age
-// (one hue, older = fainter) behind the filled current state, so the session's recent
-// range reads at a glance without the fills turning to mud.
+// trail: earlier states, oldest first. Drawn as faint filled ghosts fading with age
+// (one hue, older = fainter) behind the current state. Overlaps stack up darker, so
+// where the session has spent most of its time reads like a heat map; opacities stay
+// low so the stack never swamps the current state's outline.
 function renderRadar(values, trail = []){
   const size = 440, cx = size/2, cy = size/2, r = size/2 - 60;
   const n = BOTTOM.length;
@@ -332,7 +333,7 @@ function renderRadar(values, trail = []){
   trail.forEach((v, k) => {
     const age = (k + 1) / trail.length; // newest ghost -> 1
     const ghost = BOTTOM.map((b,i)=>pt(i, v[b.id]).join(',')).join(' ');
-    svg += `<polygon points="${ghost}" fill="none" stroke="var(--accent)" stroke-opacity="${(0.08 + 0.37 * age).toFixed(2)}" stroke-width="1.5" stroke-linejoin="round"/>`;
+    svg += `<polygon points="${ghost}" fill="var(--accent)" fill-opacity="${(0.02 + 0.07 * age).toFixed(3)}" stroke="none"/>`;
   });
   const poly = BOTTOM.map((b,i)=>pt(i, values[b.id]).join(',')).join(' ');
   // surface-colored ring under the current outline so it stays crisp over the ghosts
