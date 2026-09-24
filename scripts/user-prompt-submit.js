@@ -80,7 +80,10 @@ function renderFramework(template, values) {
 
 function main() {
   const input = readHookInput();
-  const userMessage = input.user_input ?? '';
+  const userMessage = input.prompt ?? '';
+  if (!userMessage) {
+    process.stderr.write(`agent-emotions: UserPromptSubmit payload had no prompt (keys: ${Object.keys(input).join(', ')})\n`);
+  }
 
   const dir = projectStateDir();
   ensureInitialized(dir);
