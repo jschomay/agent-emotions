@@ -4,7 +4,6 @@ import { join } from 'node:path';
 
 import { BOTTOM } from './graph.js';
 
-const LOG_MAX_LINES = 40;
 const HISTORY_MAX = 10;
 const TURNS_MAX = 200;
 const TURN_MESSAGE_TRUNCATE = 200;
@@ -36,9 +35,6 @@ function statePath(dir) {
 function dispositionPath(dir) {
   return join(dir, 'disposition.json');
 }
-function logPath(dir) {
-  return join(dir, 'emotion-log.md');
-}
 function turnsPath(dir) {
   return join(dir, 'turns.jsonl');
 }
@@ -50,9 +46,6 @@ export function ensureInitialized(dir) {
   }
   if (!existsSync(dispositionPath(dir))) {
     writeFileSync(dispositionPath(dir), JSON.stringify(neutralDisposition(), null, 2));
-  }
-  if (!existsSync(logPath(dir))) {
-    writeFileSync(logPath(dir), '');
   }
   if (!existsSync(turnsPath(dir))) {
     writeFileSync(turnsPath(dir), '');
@@ -80,22 +73,8 @@ export function writeDisposition(dir, disposition) {
   writeFileSync(dispositionPath(dir), JSON.stringify(disposition, null, 2));
 }
 
-export function readLogTail(dir, n = 8) {
-  const text = readFileSync(logPath(dir), 'utf8');
-  const lines = text.split('\n').filter(Boolean);
-  return lines.slice(-n);
-}
-
-export function appendLog(dir, entry) {
-  const text = readFileSync(logPath(dir), 'utf8');
-  const lines = text.split('\n').filter(Boolean);
-  lines.push(entry.trim().replace(/\n+/g, ' '));
-  const rotated = lines.slice(-LOG_MAX_LINES);
-  writeFileSync(logPath(dir), rotated.join('\n') + '\n');
-}
-
-/** Dashboard/debug data only — not read by the live pipeline. One record per interpreted
- * turn: the (truncated) message, the axes Haiku produced, and the resulting emotion values. */
+/** Dashboard/debug data only — not read by the live pipeline. One record per turn: the
+ * agent's one-line summary of the user's message, its axes reading, and the resulting values. */
 export function appendTurn(dir, { message, axes, values, disposition }) {
   const record = {
     ts: new Date().toISOString(),
@@ -111,17 +90,6 @@ export function appendTurn(dir, { message, axes, values, disposition }) {
   if (lines.length > TURNS_MAX * 1.5) {
     writeFileSync(turnsPath(dir), lines.slice(-TURNS_MAX).join('\n') + '\n');
   }
-}
-
-/** Links a log entry to the turn it describes: log_emotion runs at the end of the same
- * turn whose record the hook appended at its start, so that's always the latest record. */
-export function attachLogToLatestTurn(dir, entry) {
-  const lines = readFileSync(turnsPath(dir), 'utf8').split('\n').filter(Boolean);
-  if (!lines.length) return;
-  const last = JSON.parse(lines[lines.length - 1]);
-  last.log = entry.trim().replace(/\n+/g, ' ');
-  lines[lines.length - 1] = JSON.stringify(last);
-  writeFileSync(turnsPath(dir), lines.join('\n') + '\n');
 }
 
 export function readTurns(dir, n = TURNS_MAX) {

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { readState, readDisposition, readLogTail, readTurns } from '../engine/state.js';
+import { readState, readDisposition, readTurns } from '../engine/state.js';
 
 const [, , dir, portArg] = process.argv;
 if (!dir || !portArg) {
@@ -26,7 +26,6 @@ const server = createServer((req, res) => {
       const body = JSON.stringify({
         state: readState(dir),
         disposition: readDisposition(dir),
-        log: readLogTail(dir, 40).reverse(),
         turns: readTurns(dir, 200),
       });
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
