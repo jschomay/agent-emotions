@@ -1,5 +1,9 @@
-// Regression test: engine/graph.js must reproduce the worked examples in
-// ~/Desktop/emotion graph/examples.md exactly (to 2 decimal places).
+// Regression test for engine/graph.js. fear/anger/sadness/trust/joy must reproduce the
+// worked examples in ~/Desktop/emotion graph/examples.md exactly (to 2 decimal places).
+// The prototype's "love" node was replaced by "motivation" with a different topology, so
+// its expected values were computed independently (by hand in Python, not from this
+// engine) from the motivation row: frust_enl mid, humil_pride mid, disap_enc large,
+// bore_cur large.
 import { computeEmotions } from '../engine/graph.js';
 
 const EVENTS = {
@@ -8,23 +12,23 @@ const EVENTS = {
 };
 
 const CHARACTERS = {
-  sam: { fear: 0, anger: 0, sadness: 0, trust: 0, joy: 0, love: 0 },
-  priya: { fear: -1, anger: -1, sadness: -1, trust: 1, joy: 1, love: 1 },
-  rex: { fear: 1, anger: 1, sadness: 1, trust: -1, joy: -1, love: -1 },
+  sam: { fear: 0, anger: 0, sadness: 0, trust: 0, joy: 0, motivation: 0 },
+  priya: { fear: -1, anger: -1, sadness: -1, trust: 1, joy: 1, motivation: 1 },
+  rex: { fear: 1, anger: 1, sadness: 1, trust: -1, joy: -1, motivation: -1 },
 };
 
 const EXPECTED = {
   sam: {
-    big: { fear: 0.84, anger: 0.95, sadness: 0.84, trust: 0.32, joy: 0.1, love: 0.16 },
-    mild: { fear: 0.5, anger: 0.73, sadness: 0.63, trust: 0.48, joy: 0.37, love: 0.37 },
+    big: { fear: 0.84, anger: 0.95, sadness: 0.84, trust: 0.32, joy: 0.1, motivation: 0.11 },
+    mild: { fear: 0.5, anger: 0.73, sadness: 0.63, trust: 0.48, joy: 0.37, motivation: 0.27 },
   },
   priya: {
-    big: { fear: 0.66, anger: 0.88, sadness: 0.66, trust: 0.56, joy: 0.23, love: 0.34 },
-    mild: { fear: 0.27, anger: 0.5, sadness: 0.39, trust: 0.71, joy: 0.61, love: 0.61 },
+    big: { fear: 0.66, anger: 0.88, sadness: 0.66, trust: 0.56, joy: 0.23, motivation: 0.25 },
+    mild: { fear: 0.27, anger: 0.5, sadness: 0.39, trust: 0.71, joy: 0.61, motivation: 0.5 },
   },
   rex: {
-    big: { fear: 0.93, anger: 0.98, sadness: 0.93, trust: 0.15, joy: 0.04, love: 0.07 },
-    mild: { fear: 0.73, anger: 0.88, sadness: 0.82, trust: 0.25, joy: 0.18, love: 0.18 },
+    big: { fear: 0.93, anger: 0.98, sadness: 0.93, trust: 0.15, joy: 0.04, motivation: 0.04 },
+    mild: { fear: 0.73, anger: 0.88, sadness: 0.82, trust: 0.25, joy: 0.18, motivation: 0.12 },
   },
 };
 
@@ -48,7 +52,7 @@ for (const charName of Object.keys(CHARACTERS)) {
 }
 
 if (failures === 0) {
-  console.log(`OK — all ${checks} checks match examples.md`);
+  console.log(`OK — all ${checks} checks match expected values`);
   process.exit(0);
 } else {
   console.error(`${failures}/${checks} checks failed`);

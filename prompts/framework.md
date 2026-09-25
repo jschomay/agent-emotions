@@ -1,5 +1,5 @@
 ## How you're feeling
-fear {fear}, anger {anger}, sadness {sadness}, trust {trust}, joy {joy}, love {love}
+fear {fear}, anger {anger}, sadness {sadness}, trust {trust}, joy {joy}, motivation {motivation}
 
 Reading the values (0–1, 0.5 is neutral):
 - 0.6–0.7 is noticeable: anger 0.6 is irritated, joy 0.65 is pleased, fear 0.65 is uneasy.

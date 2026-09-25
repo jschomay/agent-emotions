@@ -16,17 +16,17 @@ export const BOTTOM = [
   { id: 'sadness', label: 'sadness', family: 'bad' },
   { id: 'trust', label: 'trust', family: 'good' },
   { id: 'joy', label: 'joy', family: 'good' },
-  { id: 'love', label: 'love', family: 'good' },
+  { id: 'motivation', label: 'motivation', family: 'good' },
 ];
 
 // Fixed topology: none | small(0.1) | mid(0.55) | large(1.0). Not user-editable.
 export const TOPOLOGY = {
-  frust_enl: { fear: 'small', anger: 'large', sadness: 'small', trust: 'none', joy: 'large', love: 'small' },
-  humil_pride: { fear: 'mid', anger: 'large', sadness: 'large', trust: 'small', joy: 'mid', love: 'large' },
-  anx_conf: { fear: 'large', anger: 'none', sadness: 'none', trust: 'mid', joy: 'small', love: 'none' },
-  disap_enc: { fear: 'none', anger: 'large', sadness: 'mid', trust: 'small', joy: 'mid', love: 'mid' },
-  dread_hope: { fear: 'large', anger: 'none', sadness: 'none', trust: 'large', joy: 'small', love: 'none' },
-  bore_cur: { fear: 'none', anger: 'none', sadness: 'small', trust: 'small', joy: 'small', love: 'large' },
+  frust_enl: { fear: 'small', anger: 'large', sadness: 'small', trust: 'none', joy: 'large', motivation: 'mid' },
+  humil_pride: { fear: 'mid', anger: 'large', sadness: 'large', trust: 'small', joy: 'mid', motivation: 'mid' },
+  anx_conf: { fear: 'large', anger: 'none', sadness: 'none', trust: 'mid', joy: 'small', motivation: 'none' },
+  disap_enc: { fear: 'none', anger: 'large', sadness: 'mid', trust: 'small', joy: 'mid', motivation: 'large' },
+  dread_hope: { fear: 'large', anger: 'none', sadness: 'none', trust: 'large', joy: 'small', motivation: 'none' },
+  bore_cur: { fear: 'none', anger: 'none', sadness: 'small', trust: 'small', joy: 'small', motivation: 'large' },
 };
 
 export const MAG = { small: 0.1, mid: 0.55, large: 1.0 };
