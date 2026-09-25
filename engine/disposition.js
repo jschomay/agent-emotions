@@ -1,55 +1,41 @@
 import { BOTTOM } from './graph.js';
 
-const STREAK_LEN = 3;
-const DEVIATION_THRESHOLD = 0.2; // distance from neutral (0.5), for the streak rule
-const SPIKE_HIGH = 0.8; // single-turn value at/above this nudges disposition up
-const SPIKE_LOW = 0.2; // single-turn value at/below this nudges disposition down
-const NUDGE_AMOUNT = 0.05;
+const NO_MARK_ZONE = 0.1; // felt within 0.4–0.6 leaves no mark
+const MARK_RATE = 0.45; // mark = MARK_RATE × (felt − 0.5)
+const UNPLEASANT_WEIGHT = 1.5; // marks toward upset (fear/anger/sadness up, trust/joy/motivation down) count more
+const CAP = 0.45; // max |bias|; keeps strong opposite moments able to pull any emotion back
 
 /**
- * Deterministic, no LLM. Two independent triggers, each capable of nudging a given
- * emotion's disposition bias by a small fixed amount (capped at +/-1):
+ * Deterministic, no LLM. Disposition acts as short-term mood: the lingering effect of how the
+ * agent has felt recently. Each turn, every emotion the agent felt noticeably (outside 0.4–0.6)
+ * leaves a mark on its bias proportional to how strongly it was felt. Mild turns leave none, so
+ * ordinary pleasantness doesn't erase a bad mood; strong encouragement does.
  *
- * - Streak: the same emotion has sat >0.2 from neutral, same direction, for the last
- *   3 turns (history must already include the just-computed value).
- * - Spike: a single turn hit a real extreme (>=0.8 or <=0.2) — one bad-enough moment
- *   is itself worth a nudge, no streak needed ("getting really mad makes you quicker
- *   to anger next time").
+ * Judged on the felt reading (the value just computed with the current bias included), like a
+ * person seeing the world through their mood. The cap is what prevents lock-in: even at the cap,
+ * a strongly encouraging (or upsetting) turn still reads outside the no-mark zone.
  *
- * If both fire for the same emotion in the same turn, only one nudge is applied (they
- * agree on direction by construction, so this just avoids double-counting one event).
+ * Tuned offline against honest-rated turns (see notes/mood-eval.mjs).
  *
- * First-pass thresholds/amounts — expect to tune once there are real sessions to look at.
- *
+ * @param history state history; the last entry is this turn's felt values
  * @returns {{ disposition: Record<string, number>, nudged: string[] }}
  */
 export function applyDispositionNudges(disposition, history) {
-  const latest = history[history.length - 1];
-  const streakWindow = history.length >= STREAK_LEN ? history.slice(-STREAK_LEN) : null;
-
+  const felt = history[history.length - 1];
   const next = { ...disposition };
   const nudged = [];
+  if (!felt) return { disposition: next, nudged };
 
   for (const b of BOTTOM) {
-    let direction = 0;
-
-    if (streakWindow) {
-      const deviations = streakWindow.map((v) => v[b.id] - 0.5);
-      if (deviations.every((d) => d > DEVIATION_THRESHOLD)) direction = 1;
-      else if (deviations.every((d) => d < -DEVIATION_THRESHOLD)) direction = -1;
-    }
-
-    if (direction === 0 && latest) {
-      if (latest[b.id] >= SPIKE_HIGH) direction = 1;
-      else if (latest[b.id] <= SPIKE_LOW) direction = -1;
-    }
-
-    if (direction === 0) continue;
+    const d = felt[b.id] - 0.5;
+    let mark = Math.abs(d) < NO_MARK_ZONE ? 0 : d * MARK_RATE;
+    const towardUpset = b.family === 'bad' ? d > 0 : d < 0;
+    if (towardUpset) mark *= UNPLEASANT_WEIGHT;
 
     const current = next[b.id] ?? 0;
-    // Round to avoid float drift (e.g. +0.05 then -0.05 landing on 1e-17 instead of
-    // exactly 0) — visible as a stray near-zero bias in the dashboard otherwise.
-    const moved = Math.round(Math.max(-1, Math.min(1, current + direction * NUDGE_AMOUNT)) * 100) / 100;
+    // Round to avoid float drift (e.g. landing on 1e-17 instead of exactly 0) — visible as a
+    // stray near-zero bias in the dashboard otherwise.
+    const moved = Math.round(Math.max(-CAP, Math.min(CAP, current + mark)) * 100) / 100;
     if (moved !== current) {
       next[b.id] = moved;
       nudged.push(b.id);

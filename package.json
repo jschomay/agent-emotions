@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:engine": "node test/graph.test.js"
+    "test:engine": "node test/graph.test.js",
+    "test:disposition": "node test/disposition.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
