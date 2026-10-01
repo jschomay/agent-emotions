@@ -1,8 +1,9 @@
 {
   "name": "agent-emotions",
-  "description": "Gives Claude Code a persistent emotional state, computed from session events, that colors its own tone and pacing",
-  "version": "0.1.0",
+  "description": "Gives Claude Code an emotional state that colors how it works with you",
   "author": {
     "name": "Jeff Schomay"
-  }
+  },
+  "repository": "https://github.com/jschomay/agent-emotions",
+  "homepage": "https://github.com/jschomay/agent-emotions"
 }
