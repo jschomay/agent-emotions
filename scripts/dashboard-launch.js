@@ -4,7 +4,7 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const [, , projectDir, pluginData] = process.argv;
+const [, , projectDir, pluginData, flag] = process.argv;
 if (!projectDir || !pluginData) {
   console.error('usage: dashboard-launch.js <projectDir> <pluginData>');
   process.exit(1);
@@ -56,4 +56,13 @@ if (!(await isListening(port))) {
   }
 }
 
-console.log(`http://localhost:${port}`);
+const url = `http://localhost:${port}`;
+if (flag === '--open') {
+  // Open in the default browser on any platform.
+  const [cmd, args] =
+    process.platform === 'darwin' ? ['open', [url]]
+    : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+    : ['xdg-open', [url]];
+  spawn(cmd, args, { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
+}
+console.log(url);

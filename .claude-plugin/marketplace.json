@@ -1,0 +1,12 @@
+{
+  "name": "agent-emotions",
+  "owner": { "name": "Jeff Schomay" },
+  "description": "Gives Claude Code an emotional state that colors how it works with you",
+  "plugins": [
+    {
+      "name": "agent-emotions",
+      "source": "./",
+      "description": "Gives Claude Code an emotional state that colors how it works with you"
+    }
+  ]
+}
